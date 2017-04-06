@@ -43,7 +43,7 @@ def url(s):
         return s
 
     except Exception, e:
-        raise argparse.ArgumentTypeError('Cannot use file: {0}'.format(e))
+        raise argparse.ArgumentTypeError('Cannot parse url: {0}'.format(e))
 
 
 def file(s):
@@ -56,11 +56,13 @@ def file(s):
         return c
 
     except Exception, e:
-        raise argparse.ArgumentTypeError('Cannot parse url: {0}'.format(e))
+        raise argparse.ArgumentTypeError('Cannot use file: {0}'.format(e))
 
 
 R_HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux i686; rv:45.0) Gecko/20100101 Firefox/45.0'}
-R_PROXIES = {'http':'http://127.0.0.1:8080', 'https':'http://127.0.0.1:8080'}
+R_PROXIES = {}
+R_COOKIES = {}
+R_TIMEOUT = 5
 
 class Buster(threading.Thread):
 
@@ -69,7 +71,7 @@ class Buster(threading.Thread):
         threading.Thread.__init__(self)
         self.testList = testList
         self.url = url
-        self.ext = '.'+ext if ext is not None else ''
+        self.ext = '.'+ext if ext is not None else '/'
         self.alive = False
         self.code = code
         self.codes = codes
@@ -93,12 +95,16 @@ class Buster(threading.Thread):
             if not self.alive:
                 break
 
-            fullurl = '%s%s%s' % (self.url, uri, self.ext)
-            r = requests.get(fullurl, headers=R_HEADERS, proxies=R_PROXIES, verify=False, allow_redirects=False)
+            try:
+                fullurl = '%s%s%s' % (self.url, uri, self.ext)
+                r = requests.get(fullurl, headers=R_HEADERS, timeout=R_TIMEOUT, cookies=R_COOKIES, proxies=R_PROXIES, verify=False, allow_redirects=False)
 
-            logger.debug('trying "%s" [%d]' % (fullurl, r.status_code))
-            if r.status_code in self.codes:
-                logger.info('URL "%s" is valid [%d]' % (fullurl, r.status_code))
+                logger.debug('trying "%s" [%d]' % (fullurl, r.status_code))
+                if r.status_code in self.codes:
+                    logger.info('URL "%s" is valid [%d]' % (fullurl, r.status_code))
+
+            except (requests.ConnectionError, requests.exceptions.ReadTimeout), e:
+                logger.warning('Connection error on "%s"', (fullurl))
 
 
 
@@ -115,6 +121,10 @@ if __name__ == '__main__':
     ap.add_argument('-e', '--extension', dest='ext', help='Extension to search for')
     ap.add_argument('-v', '--verbose', dest='verb', action='store_true', default=False, help='Increase verbosity')
 
+    ap.add_argument('--proxy', dest='proxy')
+    ap.add_argument('--cookies', dest='cookies', help='Example: cookie1=v1&cookie2=v2')
+    ap.add_argument('--timeout', dest='timeout', help='Set request timeout', type=float)
+
     args = ap.parse_args()
 
     if args.verb:
@@ -128,6 +138,16 @@ if __name__ == '__main__':
     urilist = args.wl.replace('\r\n','\n').split('\n')
     urilist = [e for e in urilist if len(e)>0 and e[0]!='#']
     l = len(urilist)
+
+    if args.proxy:
+        R_PROXIES = {'http': args.proxy, 'https':args.proxy, 'ftp':args.proxy}
+
+    if args.cookies:
+        cookies = args.cookies.split('&')
+        R_COOKIES = {k:v for k,v in [e.split('=') for e in cookies]}
+
+    if args.timeout:
+        R_TIMEOUT = args.timeout
 
     threads = []
     for i in range(args.nthreads):
