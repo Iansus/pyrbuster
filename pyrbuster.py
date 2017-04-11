@@ -90,7 +90,6 @@ class Buster(threading.Thread):
         for i in range(self.len):
 
             uri = self.testList[i]
-            self.cur = i
 
             if not self.alive:
                 break
@@ -106,6 +105,7 @@ class Buster(threading.Thread):
             except (requests.ConnectionError, requests.exceptions.ReadTimeout), e:
                 logger.warning('Connection error on "%s"', (fullurl))
 
+            self.cur = i+1
 
 
 if __name__ == '__main__':
@@ -166,6 +166,9 @@ if __name__ == '__main__':
 
             sys.stdout.write('\r%d/%d' % (ntot, l))
             sys.stdout.flush()
+            
+            if ntot == l:
+                break
 
     except KeyboardInterrupt:
         print ''
