@@ -66,16 +66,19 @@ R_TIMEOUT = 5
 
 class Buster(threading.Thread):
 
-    def __init__(self, testList, code, codes, url, ext):
+    def __init__(self, testList, code, codes, url, ext, dodirs):
 
         threading.Thread.__init__(self)
         self.testList = testList
         self.url = url
-        self.ext = '.'+ext if ext is not None else '/'
+        self.ext = '.'+ext if ext is not None else None
+        self.dodirs = dodirs
         self.alive = False
         self.code = code
         self.codes = codes
-        self.len = len(testList)
+        self.inc = 2 if ext is not None and dodirs else 1
+        self.len = self.inc*len(testList)
+        self.realLen = len(testList)
         self.cur = 0
 
     def kill(self):
@@ -87,25 +90,38 @@ class Buster(threading.Thread):
     def run(self):
 
         self.alive = True
-        for i in range(self.len):
+        for i in range(self.realLen):
 
             uri = self.testList[i]
 
             if not self.alive:
                 break
 
-            try:
-                fullurl = '%s%s%s' % (self.url, uri, self.ext)
-                r = requests.get(fullurl, headers=R_HEADERS, timeout=R_TIMEOUT, cookies=R_COOKIES, proxies=R_PROXIES, verify=False, allow_redirects=False)
+            if self.ext is not None:
+                self.testUrl(uri, self.ext)
 
-                logger.debug('trying "%s" [%d]' % (fullurl, r.status_code))
-                if r.status_code in self.codes:
-                    logger.info('URL "%s" is valid [%d]' % (fullurl, r.status_code))
+            if self.dodirs:
+                self.testUrl(uri, '/')
 
-            except (requests.ConnectionError, requests.exceptions.ReadTimeout), e:
-                logger.warning('Connection error on "%s"', (fullurl))
 
-            self.cur = i+1
+    def testUrl(self, uri, ext):
+
+        try:
+            fullurl = '%s%s%s' % (self.url, uri, ext)
+            r = requests.get(fullurl, headers=R_HEADERS, timeout=R_TIMEOUT, cookies=R_COOKIES, proxies=R_PROXIES, verify=False, allow_redirects=False)
+
+            logger.debug('trying "%s" [%d]' % (fullurl, r.status_code))
+            if r.status_code in self.codes:
+                logger.info('URL "%s" is valid [%d]' % (fullurl, r.status_code))
+
+        except (requests.ConnectionError, requests.exceptions.ReadTimeout), e:
+            logger.warning('Connection error on "%s"', (fullurl))
+
+        self.cur +=1
+
+        return
+
+
 
 
 if __name__ == '__main__':
@@ -119,6 +135,7 @@ if __name__ == '__main__':
     ap.add_argument('-l', '--list-codes', dest='list', default='200,403', help='List of correct HTTP error codes', type=int_comma_list)
     ap.add_argument('-w', '--wordlist', dest='wl', help='Wordlist', required=True, type=file)
     ap.add_argument('-e', '--extension', dest='ext', help='Extension to search for')
+    ap.add_argument('-d', '--directories', dest='dirs', action='store_true', help='Search for directories')
     ap.add_argument('-v', '--verbose', dest='verb', action='store_true', default=False, help='Increase verbosity')
 
     ap.add_argument('--proxy', dest='proxy')
@@ -126,6 +143,10 @@ if __name__ == '__main__':
     ap.add_argument('--timeout', dest='timeout', help='Set request timeout', type=float)
 
     args = ap.parse_args()
+
+    if not (args.ext or args.dirs):
+        logger.error('Either extension or directory is required')
+        sys.exit(1)
 
     if args.verb:
         logger.setLevel(logging.DEBUG)
@@ -151,7 +172,7 @@ if __name__ == '__main__':
 
     threads = []
     for i in range(args.nthreads):
-        b = Buster(urilist[i*l/args.nthreads:(i+1)*l/args.nthreads], i, args.list, url, args.ext)
+        b = Buster(urilist[i*l/args.nthreads:(i+1)*l/args.nthreads], i, args.list, url, args.ext, args.dirs)
         b.daemon = True
         threads.append(b)
         b.start()
@@ -161,12 +182,14 @@ if __name__ == '__main__':
             time.sleep(0.5)
 
             ntot = 0
+            l = 0
             for thread in threads:
                 ntot += thread.cur
+                l += thread.len
 
             sys.stdout.write('\r%d/%d' % (ntot, l))
             sys.stdout.flush()
-            
+
             if ntot == l:
                 break
 
