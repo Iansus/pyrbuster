@@ -26,6 +26,15 @@ optional arguments:
   --timeout TIMEOUT     Set request timeout
 ```
 
+## Know issues
+
+### InsecureRequestWarning
+
+If you have the following error message `cannot import name InsecureRequestWarning`, the issue is due to an old version of requests.
+To solve it, run:
+* `sudo pip install --upgrade pip`
+* `sudo pip install --upgrade requests`
+
 ## TODO
 
 ### Short term
