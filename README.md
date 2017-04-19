@@ -3,7 +3,7 @@ Python based directory buster
 
 ```
 usage: pyrbuster.py [-h] -t TARGET [-p PORT] [-b BASEURI] [-n NTHREADS]
-                    [-l LIST] -w WL [-e EXT] [-v] [--proxy PROXY]
+                    [-l LIST] -w WL [-e EXT] [-d] [-v] [--proxy PROXY]
                     [--cookies COOKIES] [--timeout TIMEOUT]
 
 optional arguments:
@@ -20,6 +20,7 @@ optional arguments:
   -w WL, --wordlist WL  Wordlist
   -e EXT, --extension EXT
                         Extension to search for
+  -d, --directories     Search for directories
   -v, --verbose         Increase verbosity
   --proxy PROXY
   --cookies COOKIES     Example: cookie1=v1&cookie2=v2
