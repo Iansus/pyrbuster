@@ -14,50 +14,10 @@ logging.basicConfig(format = '\r%(asctime)s] %(levelname)-9s %(message)s')
 logger = logging.getLogger('main')
 logger.setLevel(logging.INFO)
 
-def auto_int(s):
-    try:
-        return int(s, 0)
-    except ValueError, e:
-        raise argparse.ArgumentTypeError('Cannot parse int: {0}'.format(e))
 
 
-def int_comma_list(s):
-    try:
-        return map(auto_int, s.split(','))
-    except Exception, e:
-        raise argparse.ArgumentTypeError('Cannot parse comma list: {0}'.format(e))
-
-
-def url(s):
-    try:
-        if not '://' in s:
-            raise Exception('no scheme in URL')
-
-        scheme, url = s.split('://')
-        if scheme.lower() not in ['http', 'https']:
-            raise Exception('only http/https supported')
-
-        while s[-1]=='/':
-            s = s[:-1]
-
-        return s
-
-    except Exception, e:
-        raise argparse.ArgumentTypeError('Cannot parse url: {0}'.format(e))
-
-
-def file(s):
-    try:
-
-        f = open(s, 'r')
-        c = f.read()
-        f.close()
-
-        return c
-
-    except Exception, e:
-        raise argparse.ArgumentTypeError('Cannot use file: {0}'.format(e))
-
+        
+        
 
 R_HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux i686; rv:45.0) Gecko/20100101 Firefox/45.0'}
 R_PROXIES = {}
@@ -122,18 +82,64 @@ class Buster(threading.Thread):
         return
 
 
+'''
+Types for argument parser
+'''
+def type_auto_int(s):
+    try:
+        return int(s, 0)
+    except ValueError, e:
+        raise argparse.ArgumentTypeError('Cannot parse int: {0}'.format(e))
+
+
+def type_int_comma_list(s):
+    try:
+        return map(auto_int, s.split(','))
+    except Exception, e:
+        raise argparse.ArgumentTypeError('Cannot parse comma list: {0}'.format(e))
+
+
+def type_url(s):
+    try:
+        if not '://' in s:
+            raise Exception('no scheme in URL')
+
+        scheme, url = s.split('://')
+        if scheme.lower() not in ['http', 'https']:
+            raise Exception('only http/https supported')
+
+        while s[-1]=='/':
+            s = s[:-1]
+
+        return s
+
+    except Exception, e:
+        raise argparse.ArgumentTypeError('Cannot parse url: {0}'.format(e))
+
+
+def type_file(s):
+    try:
+
+        f = open(s, 'r')
+        c = f.read()
+        f.close()
+
+        return c
+
+    except Exception, e:
+        raise argparse.ArgumentTypeError('Cannot use file: {0}'.format(e))
 
 
 if __name__ == '__main__':
 
     ap = argparse.ArgumentParser()
 
-    ap.add_argument('-t', '--target', dest='target', help='Target **host**, including scheme (HTTP, HTTPS)', required='True', type=url)
-    ap.add_argument('-p', '--port', dest='port', type=auto_int, default=80, help='Target port (default:80)')
+    ap.add_argument('-t', '--target', dest='target', help='Target **host**, including scheme (HTTP, HTTPS)', required='True', type=type_url)
+    ap.add_argument('-p', '--port', dest='port', type=type_auto_int, default=80, help='Target port (default:80)')
     ap.add_argument('-b', '--base-uri', dest='baseuri', default='/', help='Base URI, default is /')
-    ap.add_argument('-n', '--nb-threads', dest='nthreads', default=1, type=auto_int, help='Number of threads')
-    ap.add_argument('-l', '--list-codes', dest='list', default='200,403', help='List of correct HTTP error codes', type=int_comma_list)
-    ap.add_argument('-w', '--wordlist', dest='wl', help='Wordlist', required=True, type=file)
+    ap.add_argument('-n', '--nb-threads', dest='nthreads', default=1, type=type_auto_int, help='Number of threads')
+    ap.add_argument('-l', '--list-codes', dest='list', default='200,403', help='List of correct HTTP error codes', type=type_int_comma_list)
+    ap.add_argument('-w', '--wordlist', dest='wl', help='Wordlist', required=True, type=type_file)
     ap.add_argument('-e', '--extension', dest='ext', help='Extension to search for')
     ap.add_argument('-d', '--directories', dest='dirs', action='store_true', help='Search for directories')
     ap.add_argument('-v', '--verbose', dest='verb', action='store_true', default=False, help='Increase verbosity')
