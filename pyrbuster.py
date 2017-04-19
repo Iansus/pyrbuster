@@ -14,16 +14,17 @@ logging.basicConfig(format = '\r%(asctime)s] %(levelname)-9s %(message)s')
 logger = logging.getLogger('main')
 logger.setLevel(logging.INFO)
 
+'''
+Buster class and variables
+'''
 
-
-        
-        
-
+# DEFAULTS
 R_HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux i686; rv:45.0) Gecko/20100101 Firefox/45.0'}
 R_PROXIES = {}
 R_COOKIES = {}
 R_TIMEOUT = 5
 
+# CLASS
 class Buster(threading.Thread):
 
     def __init__(self, testList, code, codes, url, ext, dodirs):
@@ -130,8 +131,12 @@ def type_file(s):
         raise argparse.ArgumentTypeError('Cannot use file: {0}'.format(e))
 
 
+'''
+Main
+'''
 if __name__ == '__main__':
 
+    # Argument parser and options
     ap = argparse.ArgumentParser()
 
     ap.add_argument('-t', '--target', dest='target', help='Target **host**, including scheme (HTTP, HTTPS)', required='True', type=type_url)
@@ -150,22 +155,14 @@ if __name__ == '__main__':
 
     args = ap.parse_args()
 
+    # Quick checks on args
     if not (args.ext or args.dirs):
         logger.error('Either extension or directory is required')
         sys.exit(1)
 
     if args.verb:
         logger.setLevel(logging.DEBUG)
-
-    baseUri = args.baseuri if args.baseuri[-1]=='/' else args.baseuri+'/'
-    url = '%s:%d%s' % (args.target, args.port, baseUri)
-
-    logger.info('using URL %s' % url)
-
-    urilist = args.wl.replace('\r\n','\n').split('\n')
-    urilist = [e for e in urilist if len(e)>0 and e[0]!='#']
-    l = len(urilist)
-
+        
     if args.proxy:
         R_PROXIES = {'http': args.proxy, 'https':args.proxy, 'ftp':args.proxy}
 
@@ -175,7 +172,18 @@ if __name__ == '__main__':
 
     if args.timeout:
         R_TIMEOUT = args.timeout
+        
+    # Sanitize uri
+    baseUri = args.baseuri if args.baseuri[-1]=='/' else args.baseuri+'/'
+    url = '%s:%d%s' % (args.target, args.port, baseUri)
+    logger.info('using URL %s' % url)
 
+    # Sanitize file contents
+    urilist = args.wl.replace('\r\n','\n').split('\n')
+    urilist = [e for e in urilist if len(e)>0 and e[0]!='#']
+    l = len(urilist)
+
+    # Create and start threads
     threads = []
     for i in range(args.nthreads):
         b = Buster(urilist[i*l/args.nthreads:(i+1)*l/args.nthreads], i, args.list, url, args.ext, args.dirs)
@@ -183,6 +191,7 @@ if __name__ == '__main__':
         threads.append(b)
         b.start()
 
+    # Print progress
     try:
         while True:
             time.sleep(0.5)
