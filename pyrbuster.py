@@ -95,7 +95,7 @@ def type_auto_int(s):
 
 def type_int_comma_list(s):
     try:
-        return map(auto_int, s.split(','))
+        return map(type_auto_int, s.split(','))
     except Exception, e:
         raise argparse.ArgumentTypeError('Cannot parse comma list: {0}'.format(e))
 
