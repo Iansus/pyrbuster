@@ -23,62 +23,92 @@ R_HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux i686; rv:45.0) Gecko/2010010
 R_PROXIES = {}
 R_COOKIES = {}
 R_TIMEOUT = 5
+R_WAIT = 5
 
 # CLASS
 class Buster(threading.Thread):
 
-    def __init__(self, testList, code, codes, url, ext, dodirs):
+    #def __init__(self, testList, code, codes, url, ext, dodirs):
+    def __init__(self, poolbase, workerId, statusCodes, baseUrl, extensionList, testDirectories):
 
         threading.Thread.__init__(self)
-        self.testList = testList
-        self.url = url
-        self.ext = '.'+ext if ext is not None else None
-        self.dodirs = dodirs
-        self.alive = False
-        self.code = code
-        self.codes = codes
-        self.inc = 2 if ext is not None and dodirs else 1
-        self.len = self.inc*len(testList)
-        self.realLen = len(testList)
-        self.cur = 0
+        
+        # Class attributes
+        self.__pool = poolbase
+        self.__done = []
+        self.__id = workerId
+        self.__statusCodes = statusCodes
+        self.__baseUrl = baseUrl
+        self.__extensionList = extensionList
+        self.__testDirectories = testDirectories
+        self.__increment = len(self.__extensionList) if not testDirectories else 1+len(self.__extensionList)
+        self.__current = 0
+
 
     def kill(self):
         self.alive = False
 
+        
     def log(self, m, l):
         logger.log(l, m)
 
+        
+    def getTotal(self):
+        return self.__increment * (len(self.__pool) + len(self.__done))
+        
+        
+    def getCurrent(self):
+        return self.__current
+        
+        
     def run(self):
 
         self.alive = True
-        for i in range(self.realLen):
-
-            uri = self.testList[i]
-
+        while True:
+           
             if not self.alive:
                 break
+        
+            # Is there sthing to do?
+            if len(self.__pool)==0:
+                logger.debug('Worker %d has nothing to do, sleeping for %d seconds...' % (self.__id, R_WAIT))
+                time.sleep(R_WAIT)
+                continue
+                        
+            # Remove from pool, add to done 
+            uri = self.__pool.pop(0)
+            self.__done.append(uri)
+           
+            # Test with extensions
+            for ext in self.__extensionList:
+                self.__testUrl(uri, ext)
 
-            if self.ext is not None:
-                self.testUrl(uri, self.ext)
-
-            if self.dodirs:
-                self.testUrl(uri, '/')
+            # Test with directory
+            if self.__testDirectories:
+                self.__testUrl(uri, '/')
 
 
-    def testUrl(self, uri, ext):
+    def __testUrl(self, uri, ext):
 
-        try:
-            fullurl = '%s%s%s' % (self.url, uri, ext)
-            r = requests.get(fullurl, headers=R_HEADERS, timeout=R_TIMEOUT, cookies=R_COOKIES, proxies=R_PROXIES, verify=False, allow_redirects=False)
+        requestOk = 3
+        
+        while requestOk > 0:
+            try:
+                # Build URL
+                fullurl = '%s%s%s' % (self.__baseUrl, uri, ext)
+                r = requests.get(fullurl, headers=R_HEADERS, timeout=R_TIMEOUT, cookies=R_COOKIES, proxies=R_PROXIES, verify=False, allow_redirects=False)
+                requestOk = 0
+                logger.debug('trying "%s" [%d]' % (fullurl, r.status_code))
+                
+                # Is it OK for us ?
+                if r.status_code in self.__statusCodes:
+                    logger.info('URL "%s" is valid [%d]' % (fullurl, r.status_code))
 
-            logger.debug('trying "%s" [%d]' % (fullurl, r.status_code))
-            if r.status_code in self.codes:
-                logger.info('URL "%s" is valid [%d]' % (fullurl, r.status_code))
+            except (requests.ConnectionError, requests.exceptions.ReadTimeout), e:
+                logger.warning('Connection error on "%s"', (fullurl))
+                requestOk-=1
 
-        except (requests.ConnectionError, requests.exceptions.ReadTimeout), e:
-            logger.warning('Connection error on "%s"', (fullurl))
-
-        self.cur +=1
+        self.__current +=1
 
         return
 
@@ -98,6 +128,15 @@ def type_int_comma_list(s):
         return map(type_auto_int, s.split(','))
     except Exception, e:
         raise argparse.ArgumentTypeError('Cannot parse comma list: {0}'.format(e))
+
+
+def type_ext_list(s):
+    
+    if s is None:
+        return []
+        
+    else:
+        return ['.'+e for e in s.strip().split(',')]
 
 
 def type_url(s):
@@ -140,12 +179,12 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
 
     ap.add_argument('-t', '--target', dest='target', help='Target **host**, including scheme (HTTP, HTTPS)', required='True', type=type_url)
-    ap.add_argument('-p', '--port', dest='port', type=type_auto_int, default=80, help='Target port (default:80)')
+    ap.add_argument('-p', '--port', dest='port', default=80, help='Target port (default:80)', type=type_auto_int)
     ap.add_argument('-b', '--base-uri', dest='baseuri', default='/', help='Base URI, default is /')
-    ap.add_argument('-n', '--nb-threads', dest='nthreads', default=1, type=type_auto_int, help='Number of threads')
+    ap.add_argument('-n', '--nb-threads', dest='nthreads', default=1, help='Number of threads', type=type_auto_int)
     ap.add_argument('-l', '--list-codes', dest='list', default='200,403', help='List of correct HTTP error codes', type=type_int_comma_list)
     ap.add_argument('-w', '--wordlist', dest='wl', help='Wordlist', required=True, type=type_file)
-    ap.add_argument('-e', '--extension', dest='ext', help='Extension to search for')
+    ap.add_argument('-e', '--extension', dest='ext', help='Extension to search for', type=type_ext_list)
     ap.add_argument('-d', '--directories', dest='dirs', action='store_true', help='Search for directories')
     ap.add_argument('-v', '--verbose', dest='verb', action='store_true', default=False, help='Increase verbosity')
 
@@ -183,6 +222,8 @@ if __name__ == '__main__':
     urilist = [e for e in urilist if len(e)>0 and e[0]!='#']
     l = len(urilist)
 
+    logger.info('All arguments OK, starting PyrBuster, stop with CTRL-C')
+    
     # Create and start threads
     threads = []
     for i in range(args.nthreads):
@@ -196,17 +237,15 @@ if __name__ == '__main__':
         while True:
             time.sleep(0.5)
 
-            ntot = 0
-            l = 0
+            totalSize = 0
+            currentProgress = 0
             for thread in threads:
-                ntot += thread.cur
-                l += thread.len
+                currentProgress += thread.getCurrent()
+                totalSize += thread.getTotal()
 
-            sys.stdout.write('\r%d/%d' % (ntot, l))
+            sys.stdout.write('\r%d/%d' % (currentProgress, totalSize))
             sys.stdout.flush()
-
-            if ntot == l:
-                break
+            
 
     except KeyboardInterrupt:
         print ''
