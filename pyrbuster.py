@@ -29,10 +29,10 @@ R_WAIT = 5
 class Buster(threading.Thread):
 
     #def __init__(self, testList, code, codes, url, ext, dodirs):
-    def __init__(self, poolbase, workerId, statusCodes, baseUrl, extensionList, testDirectories):
+    def __init__(self, poolbase, workerId, statusCodes, baseUrl, extensionList, testDirectories, outputStream, outputLock):
 
         threading.Thread.__init__(self)
-        
+
         # Class attributes
         self.__pool = poolbase
         self.__done = []
@@ -43,55 +43,66 @@ class Buster(threading.Thread):
         self.__testDirectories = testDirectories
         self.__increment = len(self.__extensionList) if not testDirectories else 1+len(self.__extensionList)
         self.__current = 0
-
+        self.__outputStream = outputStream
+        self.__outputLock = outputLock
 
     def kill(self):
         self.alive = False
 
-        
     def log(self, m, l):
         logger.log(l, m)
 
-        
     def getTotal(self):
         return self.__increment * (len(self.__pool) + len(self.__done))
-        
-        
+
     def getCurrent(self):
         return self.__current
-        
-        
+
     def run(self):
 
         self.alive = True
         while True:
-           
+
             if not self.alive:
                 break
-        
+
             # Is there sthing to do?
             if len(self.__pool)==0:
                 logger.debug('Worker %d has nothing to do, sleeping for %d seconds...' % (self.__id, R_WAIT))
                 time.sleep(R_WAIT)
                 continue
-                        
+
             # Remove from pool, add to done 
             uri = self.__pool.pop(0)
             self.__done.append(uri)
-           
+
+            success = []
+            
             # Test with extensions
             for ext in self.__extensionList:
-                self.__testUrl(uri, ext)
+                success += self.__testUrl(uri, ext)
 
             # Test with directory
             if self.__testDirectories:
-                self.__testUrl(uri, '/')
-
-
+                success += self.__testUrl(uri, '/')
+                
+            # Optionnally output to output stream
+            if len(success)>0 and self.__outputStream is not None:
+                
+                wData = ''
+                for retval in success:
+                    wData += retval+'\n'
+                
+                self.__outputLock.acquire()
+                self.__outputStream.write(wData)
+                self.__outputStream.flush()
+                self.__outputLock.release()
+                
+            
     def __testUrl(self, uri, ext):
 
         requestOk = 3
-        
+
         while requestOk > 0:
             try:
                 # Build URL
@@ -99,19 +110,21 @@ class Buster(threading.Thread):
                 r = requests.get(fullurl, headers=R_HEADERS, timeout=R_TIMEOUT, cookies=R_COOKIES, proxies=R_PROXIES, verify=False, allow_redirects=False)
                 requestOk = 0
                 logger.debug('trying "%s" [%d]' % (fullurl, r.status_code))
-                
+
                 # Is it OK for us ?
                 if r.status_code in self.__statusCodes:
                     logger.info('URL "%s" is valid [%d]' % (fullurl, r.status_code))
+                    ret = ['[%d]\t%s' % (r.status_code, fullurl)]
+                else:   
+                    ret = []
 
             except (requests.ConnectionError, requests.exceptions.ReadTimeout), e:
                 logger.warning('Connection error on "%s"', (fullurl))
-                requestOk-=1
+                requestOk -= 1
 
         self.__current +=1
 
-        return
-
+        return ret
 
 '''
 Types for argument parser
@@ -122,22 +135,19 @@ def type_auto_int(s):
     except ValueError, e:
         raise argparse.ArgumentTypeError('Cannot parse int: {0}'.format(e))
 
-
 def type_int_comma_list(s):
     try:
         return map(type_auto_int, s.split(','))
     except Exception, e:
         raise argparse.ArgumentTypeError('Cannot parse comma list: {0}'.format(e))
 
-
 def type_ext_list(s):
-    
+
     if s is None:
         return []
-        
+
     else:
         return ['.'+e for e in s.strip().split(',')]
-
 
 def type_url(s):
     try:
@@ -156,8 +166,7 @@ def type_url(s):
     except Exception, e:
         raise argparse.ArgumentTypeError('Cannot parse url: {0}'.format(e))
 
-
-def type_file(s):
+def type_input_file(s):
     try:
 
         f = open(s, 'r')
@@ -165,6 +174,15 @@ def type_file(s):
         f.close()
 
         return c
+
+    except Exception, e:
+        raise argparse.ArgumentTypeError('Cannot use file: {0}'.format(e))
+
+def type_output_file(s):
+    try:
+
+        f = open(s, 'w')
+        return f
 
     except Exception, e:
         raise argparse.ArgumentTypeError('Cannot use file: {0}'.format(e))
@@ -183,10 +201,11 @@ if __name__ == '__main__':
     ap.add_argument('-b', '--base-uri', dest='baseuri', default='/', help='Base URI, default is /')
     ap.add_argument('-n', '--nb-threads', dest='nthreads', default=1, help='Number of threads', type=type_auto_int)
     ap.add_argument('-l', '--list-codes', dest='list', default='200,403', help='List of correct HTTP error codes', type=type_int_comma_list)
-    ap.add_argument('-w', '--wordlist', dest='wl', help='Wordlist', required=True, type=type_file)
+    ap.add_argument('-w', '--wordlist', dest='wl', help='Wordlist', required=True, type=type_input_file)
     ap.add_argument('-e', '--extension', dest='ext', help='Extension to search for', type=type_ext_list)
     ap.add_argument('-d', '--directories', dest='dirs', action='store_true', help='Search for directories')
     ap.add_argument('-v', '--verbose', dest='verb', action='store_true', default=False, help='Increase verbosity')
+    ap.add_argument('-o', '--output', dest='output', help='Output file', type=type_output_file)
 
     ap.add_argument('--proxy', dest='proxy')
     ap.add_argument('--cookies', dest='cookies', help='Example: cookie1=v1&cookie2=v2')
@@ -201,7 +220,7 @@ if __name__ == '__main__':
 
     if args.verb:
         logger.setLevel(logging.DEBUG)
-        
+
     if args.proxy:
         R_PROXIES = {'http': args.proxy, 'https':args.proxy, 'ftp':args.proxy}
 
@@ -212,6 +231,9 @@ if __name__ == '__main__':
     if args.timeout:
         R_TIMEOUT = args.timeout
         
+    if args.ext is None:
+        args.ext = []
+
     # Sanitize uri
     baseUri = args.baseuri if args.baseuri[-1]=='/' else args.baseuri+'/'
     url = '%s:%d%s' % (args.target, args.port, baseUri)
@@ -223,11 +245,12 @@ if __name__ == '__main__':
     l = len(urilist)
 
     logger.info('All arguments OK, starting PyrBuster, stop with CTRL-C')
-    
+
     # Create and start threads
     threads = []
+    lock = threading.Lock()
     for i in range(args.nthreads):
-        b = Buster(urilist[i*l/args.nthreads:(i+1)*l/args.nthreads], i, args.list, url, args.ext, args.dirs)
+        b = Buster(urilist[i*l/args.nthreads:(i+1)*l/args.nthreads], i, args.list, url, args.ext, args.dirs, args.output, lock)
         b.daemon = True
         threads.append(b)
         b.start()
@@ -245,8 +268,10 @@ if __name__ == '__main__':
 
             sys.stdout.write('\r%d/%d' % (currentProgress, totalSize))
             sys.stdout.flush()
-            
 
     except KeyboardInterrupt:
+        if args.output is not None:
+            args.output.close()
+            
         print ''
         logger.info('Exiting on ctrl-c')
