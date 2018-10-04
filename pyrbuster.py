@@ -29,7 +29,7 @@ R_WAIT = 5
 class Buster(threading.Thread):
 
     #def __init__(self, testList, code, codes, url, ext, dodirs):
-    def __init__(self, poolbase, workerId, statusCodes, baseUrl, extensionList, testDirectories, outputStream, outputLock):
+    def __init__(self, poolbase, workerId, statusCodes, baseUrl, extensionList, testDirectories, outputStream, sleepTime, outputLock):
 
         threading.Thread.__init__(self)
 
@@ -44,6 +44,7 @@ class Buster(threading.Thread):
         self.__increment = len(self.__extensionList) if not testDirectories else 1+len(self.__extensionList)
         self.__current = 0
         self.__outputStream = outputStream
+        self.__sleepTime = sleepTime
         self.__outputLock = outputLock
 
     def kill(self):
@@ -102,7 +103,7 @@ class Buster(threading.Thread):
     def __testUrl(self, uri, ext):
 
         requestOk = 3
-
+        ret = []
         while requestOk > 0:
             try:
                 # Build URL
@@ -119,8 +120,12 @@ class Buster(threading.Thread):
                     ret = []
 
             except (requests.ConnectionError, requests.exceptions.ReadTimeout), e:
-                logger.warning('Connection error on "%s"', (fullurl))
                 requestOk -= 1
+                if requestOk == 0:
+                    logger.error('Connection error on "%s"', (fullurl))
+
+            if self.__sleepTime > 0:
+                time.sleep(self.__sleepTime)
 
         self.__current +=1
 
@@ -206,6 +211,7 @@ if __name__ == '__main__':
     ap.add_argument('-d', '--directories', dest='dirs', action='store_true', help='Search for directories')
     ap.add_argument('-v', '--verbose', dest='verb', action='store_true', default=False, help='Increase verbosity')
     ap.add_argument('-o', '--output', dest='output', help='Output file', type=type_output_file)
+    ap.add_argument('-s', '--sleep', dest='sleep', help='Sleep for x seconds between each request (by thread)', type=float, default=0)
 
     ap.add_argument('--proxy', dest='proxy')
     ap.add_argument('--cookies', dest='cookies', help='Example: cookie1=v1&cookie2=v2')
@@ -250,7 +256,7 @@ if __name__ == '__main__':
     threads = []
     lock = threading.Lock()
     for i in range(args.nthreads):
-        b = Buster(urilist[i*l/args.nthreads:(i+1)*l/args.nthreads], i, args.list, url, args.ext, args.dirs, args.output, lock)
+        b = Buster(urilist[i*l/args.nthreads:(i+1)*l/args.nthreads], i, args.list, url, args.ext, args.dirs, args.output, args.sleep, lock)
         b.daemon = True
         threads.append(b)
         b.start()
